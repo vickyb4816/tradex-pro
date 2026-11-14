@@ -1,0 +1,24 @@
+{
+  "paper_trades": [],
+  "paper_account": [
+    {
+      "id": 1,
+      "balance": 100000,
+      "initial_balance": 100000
+    }
+  ],
+  "algo_config": [
+    {
+      "id": 1,
+      "broker": "",
+      "api_key": "",
+      "secret_key": "",
+      "strategy": "",
+      "symbol": "",
+      "is_running": 0
+    }
+  ],
+  "algo_logs": [],
+  "pine_scripts": [],
+  "watchlist": []
+}

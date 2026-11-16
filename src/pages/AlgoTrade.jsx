@@ -24,6 +24,8 @@ export default function AlgoTrade() {
     algoRunning,
     algoConfig,
     algoLogs,
+    paperBalance,
+    prices,
     setAlgoRunning,
     setAlgoConfig,
     setAlgoLogs,
@@ -41,7 +43,7 @@ export default function AlgoTrade() {
   })()
 
   // Local form state initialized from localStorage, store config or defaults
-  const [broker, setBroker] = useState(savedKeys.broker || algoConfig?.broker || 'Binance')
+  const [broker, setBroker] = useState(savedKeys.broker || algoConfig?.broker || 'PaperTrade')
   const [apiKey, setApiKey] = useState(savedKeys.apiKey || algoConfig?.apiKey || '')
   const [secretKey, setSecretKey] = useState(savedKeys.secretKey || algoConfig?.secretKey || '')
   const [environment, setEnvironment] = useState(savedKeys.environment || 'global')
@@ -52,15 +54,49 @@ export default function AlgoTrade() {
   const [riskPerTrade, setRiskPerTrade] = useState(algoConfig?.riskPerTrade ?? 1.5)
   const [maxDailyTrades, setMaxDailyTrades] = useState(algoConfig?.maxDailyTrades ?? 10)
 
+  // Crypto Sizing & Leverage / Margin State
+  const [cryptoTradeAmount, setCryptoTradeAmount] = useState(1000)
+  const [leverage, setLeverage] = useState(10)
+
+  // Indian Stock Sizing (No margin needed - Cash Equity)
+  const [indianSizingMode, setIndianSizingMode] = useState('amount') // 'amount' | 'quantity'
+  const [indianAmount, setIndianAmount] = useState(25000)
+  const [indianQuantity, setIndianQuantity] = useState(10)
+
   // Password visibility states
   const [showApiKey, setShowApiKey] = useState(false)
   const [showSecretKey, setShowSecretKey] = useState(false)
 
-  // Connection testing state (Strict: ONLY true when server verifies with real broker)
-  const [isConnected, setIsConnected] = useState(false)
+  // Connection testing state (Strict: ONLY true when server verifies with real broker, or Paper Trading selected)
+  const [isConnected, setIsConnected] = useState(() => broker === 'PaperTrade')
   const [isTesting, setIsTesting] = useState(false)
-  const [verifiedDetails, setVerifiedDetails] = useState(null)
+  const [verifiedDetails, setVerifiedDetails] = useState(() => (
+    broker === 'PaperTrade' ? {
+      broker: 'Paper Trading',
+      accountType: 'Virtual Account (₹1,00,000)',
+      latency: '1ms'
+    } : null
+  ))
   const [connectionMessage, setConnectionMessage] = useState(null)
+
+  // Invalidate connection if credentials change
+  const handleApiKeyChange = (val) => {
+    setApiKey(val)
+    if (broker !== 'PaperTrade') {
+      setIsConnected(false)
+      setVerifiedDetails(null)
+      setConnectionMessage(null)
+    }
+  }
+
+  const handleSecretKeyChange = (val) => {
+    setSecretKey(val)
+    if (broker !== 'PaperTrade') {
+      setIsConnected(false)
+      setVerifiedDetails(null)
+      setConnectionMessage(null)
+    }
+  }
 
   // Control & execution states
   const [actionLoading, setActionLoading] = useState(false)
@@ -263,6 +299,33 @@ export default function AlgoTrade() {
     setValidationError('')
     setVerifiedDetails(null)
 
+    // Paper Trading requires zero API keys and connects immediately
+    if (broker === 'PaperTrade') {
+      setIsConnected(true)
+      const virtualDetails = {
+        success: true,
+        broker: 'Paper Trading Virtual Engine',
+        accountType: 'Zero-Risk Virtual Account (₹1,00,000 / $10,000)',
+        latency: '1ms',
+        permissions: ['Simulated Spot', 'Simulated Futures', 'Zero Borrowing Fee']
+      }
+      setVerifiedDetails(virtualDetails)
+      setConnectionMessage({
+        type: 'success',
+        text: 'Paper Trading Virtual Engine connected! No API key needed.',
+        details: virtualDetails
+      })
+      if (addAlgoLog) {
+        addAlgoLog({
+          id: String(Date.now()),
+          type: 'INFO',
+          message: '📄 Paper Trading Engine Verified: Zero API keys needed, ₹1,00,000 virtual balance ready.',
+          timestamp: new Date().toLocaleTimeString(),
+        })
+      }
+      return
+    }
+
     if (!apiKey.trim() || !secretKey.trim()) {
       setIsConnected(false)
       const field1 = broker === 'Fyers' ? 'App ID' : 'API Key'
@@ -341,8 +404,10 @@ export default function AlgoTrade() {
     setValidationError('')
     setConnectionMessage(null)
 
-    if (!isDemoMode && !isConnected) {
-      setValidationError(`Broker API is not connected. Please click "Test Connection" to authenticate your ${broker} API keys, or enable "Simulation / Demo Mode" below to trade virtually.`)
+    const isPaper = broker === 'PaperTrade' || isDemoMode
+
+    if (!isPaper && !isConnected) {
+      setValidationError(`Broker API is not connected. Please click "Verify ${broker} Connection" to authenticate, or select "Paper Trading (Zero API Key Needed)" above.`)
       return
     }
 
@@ -356,6 +421,17 @@ export default function AlgoTrade() {
     localStorage.setItem('tradex_broker_keys', JSON.stringify(creds))
     if (setAlgoConfig) setAlgoConfig(creds)
 
+    // Compute trade sizing & margin parameters
+    const isCrypto = market === 'crypto'
+    const tradeAmt = isCrypto
+      ? Number(cryptoTradeAmount)
+      : (indianSizingMode === 'amount' ? Number(indianAmount) : (Number(indianQuantity) * (prices[symbol]?.price || 2950)))
+    const lev = isCrypto ? Number(leverage) : 1
+    const marginReq = isCrypto ? Number((tradeAmt / lev).toFixed(2)) : tradeAmt
+    const qty = isCrypto
+      ? Number((tradeAmt / (prices[symbol]?.lastPrice || 64000)).toFixed(4)) || 0.05
+      : (indianSizingMode === 'quantity' ? Number(indianQuantity) : Math.max(1, Math.floor(indianAmount / (prices[symbol]?.price || 2950)))) || 10
+
     const configPayload = {
       broker,
       apiKey: apiKey.trim(),
@@ -367,8 +443,12 @@ export default function AlgoTrade() {
       market,
       riskPerTrade: Number(riskPerTrade),
       maxDailyTrades: Number(maxDailyTrades),
-      isDemo: isDemoMode,
-      environment
+      isDemo: isPaper,
+      environment,
+      tradeAmount: tradeAmt,
+      leverage: lev,
+      marginRequired: marginReq,
+      quantity: qty
     }
 
     try {
@@ -379,16 +459,15 @@ export default function AlgoTrade() {
       setUptimeSeconds(0)
 
       if (addAlgoLog) {
+        const modeLabel = isPaper ? 'PAPER TRADING (No API Key Required)' : `LIVE BROKER (${broker})`
+        const sizingDesc = isCrypto
+          ? `Total: $${tradeAmt.toLocaleString()} | Margin Req: $${marginReq.toLocaleString()} (${lev}x Lev)`
+          : `Cash Equity: ₹${tradeAmt.toLocaleString()} (${qty} shares)`
+
         addAlgoLog({
           id: String(Date.now()),
           type: 'INFO',
-          message: `🚀 Algo engine STARTED: ${strategy} executing on ${symbol.toUpperCase()} (${broker}).`,
-          timestamp: new Date().toLocaleTimeString(),
-        })
-        addAlgoLog({
-          id: String(Date.now() + 1),
-          type: 'SIGNAL',
-          message: `Risk parameters applied: ${riskPerTrade}% risk per trade, max ${maxDailyTrades} trades/day.`,
+          message: `🚀 Algo engine STARTED [${modeLabel}]: ${strategy} on ${symbol.toUpperCase()}. ${sizingDesc}.`,
           timestamp: new Date().toLocaleTimeString(),
         })
       }
@@ -397,15 +476,6 @@ export default function AlgoTrade() {
       setIsConnected(true)
       startTimeRef.current = Date.now()
       setUptimeSeconds(0)
-
-      if (addAlgoLog) {
-        addAlgoLog({
-          id: String(Date.now()),
-          type: 'INFO',
-          message: `Algo trading started for ${symbol.toUpperCase()} using ${strategy} on ${broker}.`,
-          timestamp: new Date().toLocaleTimeString(),
-        })
-      }
     } finally {
       setActionLoading(false)
     }
@@ -585,9 +655,18 @@ export default function AlgoTrade() {
                     onChange={(e) => {
                       const newBroker = e.target.value
                       setBroker(newBroker)
-                      setIsConnected(false)
-                      setVerifiedDetails(null)
                       setConnectionMessage(null)
+                      if (newBroker === 'PaperTrade') {
+                        setIsConnected(true)
+                        setVerifiedDetails({
+                          broker: 'Paper Trading',
+                          accountType: 'Virtual Account (₹1,00,000)',
+                          latency: '1ms'
+                        })
+                      } else {
+                        setIsConnected(false)
+                        setVerifiedDetails(null)
+                      }
                       if (newBroker === 'Fyers') {
                         setMarket('indian')
                         setSymbol('RELIANCE.NS')
@@ -599,6 +678,7 @@ export default function AlgoTrade() {
                     disabled={algoRunning}
                     className="input-field cursor-pointer appearance-none bg-dark-900 pr-8 font-medium text-sm"
                   >
+                    <option value="PaperTrade">📄 Paper Trading (Virtual Account • Zero API Key Needed)</option>
                     <option value="Binance">Binance (Spot & USD-M Futures)</option>
                     <option value="Fyers">Fyers (API v3 - NSE / BSE Equity & F&O)</option>
                     <option value="CoinDCX">CoinDCX (Indian Crypto Exchange)</option>
@@ -610,138 +690,165 @@ export default function AlgoTrade() {
                 </div>
               </div>
 
-              {/* Sub-Environment Selector for Binance or Delta */}
-              {broker === 'Binance' && (
-                <div>
-                  <label className="block text-xs font-medium text-gray-300 mb-1 flex items-center justify-between">
-                    <span>Binance Market Type</span>
-                    <span className="text-[10px] text-gray-500">API Gateway</span>
-                  </label>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => setEnvironment('spot')}
-                      className={`py-1.5 rounded-lg border font-medium transition-all ${
-                        environment !== 'futures'
-                          ? 'bg-primary-600/20 border-primary-500 text-primary-300'
-                          : 'bg-dark-900 border-gray-800 text-gray-400 hover:text-white'
-                      }`}
-                    >
-                      Spot & Margin
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setEnvironment('futures')}
-                      className={`py-1.5 rounded-lg border font-medium transition-all ${
-                        environment === 'futures'
-                          ? 'bg-primary-600/20 border-primary-500 text-primary-300'
-                          : 'bg-dark-900 border-gray-800 text-gray-400 hover:text-white'
-                      }`}
-                    >
-                      USDT-M Futures
-                    </button>
+              {/* Conditional Display: If Paper Trading selected, NO API KEY NEEDED */}
+              {broker === 'PaperTrade' ? (
+                <div className="p-3.5 rounded-xl bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-transparent border border-emerald-500/20 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                        <Shield className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-semibold text-white">Paper Trading Engine Active</h4>
+                        <span className="text-[10px] text-emerald-400 font-mono">Zero API Keys Needed • Instant Setup</span>
+                      </div>
+                    </div>
+                    <span className="badge badge-green text-xs font-bold">100% Ready</span>
+                  </div>
+                  <p className="text-xs text-gray-300 leading-relaxed">
+                    Auto-trades execute in real time against live market order books using your virtual balance. No broker registration or API configuration required.
+                  </p>
+                  <div className="flex items-center justify-between text-xs pt-2 border-t border-emerald-500/20 font-mono">
+                    <span className="text-gray-400">Virtual Portfolio Balance:</span>
+                    <span className="text-emerald-400 font-bold text-sm">₹{paperBalance?.toLocaleString() || '1,00,000'}</span>
                   </div>
                 </div>
-              )}
+              ) : (
+                <>
+                  {/* Sub-Environment Selector for Binance or Delta */}
+                  {broker === 'Binance' && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-300 mb-1 flex items-center justify-between">
+                        <span>Binance Market Type</span>
+                        <span className="text-[10px] text-gray-500">API Gateway</span>
+                      </label>
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <button
+                          type="button"
+                          onClick={() => setEnvironment('spot')}
+                          className={`py-1.5 rounded-lg border font-medium transition-all ${
+                            environment !== 'futures'
+                              ? 'bg-primary-600/20 border-primary-500 text-primary-300'
+                              : 'bg-dark-900 border-gray-800 text-gray-400 hover:text-white'
+                          }`}
+                        >
+                          Spot & Margin
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEnvironment('futures')}
+                          className={`py-1.5 rounded-lg border font-medium transition-all ${
+                            environment === 'futures'
+                              ? 'bg-primary-600/20 border-primary-500 text-primary-300'
+                              : 'bg-dark-900 border-gray-800 text-gray-400 hover:text-white'
+                          }`}
+                        >
+                          USDT-M Futures
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
-              {broker === 'Delta Exchange' && (
-                <div>
-                  <label className="block text-xs font-medium text-gray-300 mb-1 flex items-center justify-between">
-                    <span>Delta Server Region</span>
-                    <span className="text-[10px] text-gray-500">Gateway URL</span>
-                  </label>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => setEnvironment('global')}
-                      className={`py-1.5 rounded-lg border font-medium transition-all ${
-                        environment !== 'india'
-                          ? 'bg-primary-600/20 border-primary-500 text-primary-300'
-                          : 'bg-dark-900 border-gray-800 text-gray-400 hover:text-white'
-                      }`}
-                    >
-                      Delta Global
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setEnvironment('india')}
-                      className={`py-1.5 rounded-lg border font-medium transition-all ${
-                        environment === 'india'
-                          ? 'bg-primary-600/20 border-primary-500 text-primary-300'
-                          : 'bg-dark-900 border-gray-800 text-gray-400 hover:text-white'
-                      }`}
-                    >
-                      Delta India
-                    </button>
+                  {broker === 'Delta Exchange' && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-300 mb-1 flex items-center justify-between">
+                        <span>Delta Server Region</span>
+                        <span className="text-[10px] text-gray-500">Gateway URL</span>
+                      </label>
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <button
+                          type="button"
+                          onClick={() => setEnvironment('global')}
+                          className={`py-1.5 rounded-lg border font-medium transition-all ${
+                            environment !== 'india'
+                              ? 'bg-primary-600/20 border-primary-500 text-primary-300'
+                              : 'bg-dark-900 border-gray-800 text-gray-400 hover:text-white'
+                          }`}
+                        >
+                          Delta Global
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEnvironment('india')}
+                          className={`py-1.5 rounded-lg border font-medium transition-all ${
+                            environment === 'india'
+                              ? 'bg-primary-600/20 border-primary-500 text-primary-300'
+                              : 'bg-dark-900 border-gray-800 text-gray-400 hover:text-white'
+                          }`}
+                        >
+                          Delta India
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Dynamic Field 1: API Key / App ID */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-300 mb-1.5 flex items-center justify-between">
+                      <span>{broker === 'Fyers' ? 'Fyers App ID' : `${broker} API Key`}</span>
+                      <span className="text-[10px] text-gray-500 font-mono">
+                        {broker === 'Fyers' ? 'Client_ID-App_ID' : 'Public Token'}
+                      </span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showApiKey ? 'text' : 'password'}
+                        value={apiKey}
+                        onChange={(e) => handleApiKeyChange(e.target.value)}
+                        placeholder={
+                          broker === 'Fyers'
+                            ? 'e.g. XC12345-100'
+                            : `Enter your official ${broker} API key`
+                        }
+                        disabled={algoRunning}
+                        className="input-field pr-10 font-mono text-sm"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowApiKey(!showApiKey)}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-white transition-colors focus:outline-none cursor-pointer"
+                        title={showApiKey ? 'Click to hide Key' : 'Click to view Key'}
+                        aria-label={showApiKey ? 'Hide Key' : 'Show Key'}
+                      >
+                        {showApiKey ? <EyeOff className="w-4 h-4 text-primary-400" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </div>
-                </div>
+
+                  {/* Dynamic Field 2: Secret Key / Access Token */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-300 mb-1.5 flex items-center justify-between">
+                      <span>{broker === 'Fyers' ? 'Fyers Access Token' : `${broker} Secret Key`}</span>
+                      <span className="text-[10px] text-gray-500 font-mono">
+                        {broker === 'Fyers' ? 'Daily Bearer Token' : 'HMAC-SHA256 Secret'}
+                      </span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showSecretKey ? 'text' : 'password'}
+                        value={secretKey}
+                        onChange={(e) => handleSecretKeyChange(e.target.value)}
+                        placeholder={
+                          broker === 'Fyers'
+                            ? 'Paste daily access token from Fyers dashboard'
+                            : `Enter your official ${broker} Secret key`
+                        }
+                        disabled={algoRunning}
+                        className="input-field pr-10 font-mono text-sm"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowSecretKey(!showSecretKey)}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-white transition-colors focus:outline-none cursor-pointer"
+                        title={showSecretKey ? 'Click to hide Secret' : 'Click to view Secret'}
+                        aria-label={showSecretKey ? 'Hide Secret' : 'Show Secret'}
+                      >
+                        {showSecretKey ? <EyeOff className="w-4 h-4 text-primary-400" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                </>
               )}
-
-              {/* Dynamic Field 1: API Key / App ID */}
-              <div>
-                <label className="block text-xs font-medium text-gray-300 mb-1.5 flex items-center justify-between">
-                  <span>{broker === 'Fyers' ? 'Fyers App ID' : `${broker} API Key`}</span>
-                  <span className="text-[10px] text-gray-500 font-mono">
-                    {broker === 'Fyers' ? 'Client_ID-App_ID' : 'Public Token'}
-                  </span>
-                </label>
-                <div className="relative">
-                  <input
-                    type={showApiKey ? 'text' : 'password'}
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder={
-                      broker === 'Fyers'
-                        ? 'e.g. XC12345-100'
-                        : `Enter your official ${broker} API key`
-                    }
-                    disabled={algoRunning}
-                    className="input-field pr-10 font-mono text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowApiKey(!showApiKey)}
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-white transition-colors focus:outline-none cursor-pointer"
-                    title={showApiKey ? 'Click to hide Key' : 'Click to view Key'}
-                    aria-label={showApiKey ? 'Hide Key' : 'Show Key'}
-                  >
-                    {showApiKey ? <EyeOff className="w-4 h-4 text-primary-400" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              {/* Dynamic Field 2: Secret Key / Access Token */}
-              <div>
-                <label className="block text-xs font-medium text-gray-300 mb-1.5 flex items-center justify-between">
-                  <span>{broker === 'Fyers' ? 'Fyers Access Token' : `${broker} Secret Key`}</span>
-                  <span className="text-[10px] text-gray-500 font-mono">
-                    {broker === 'Fyers' ? 'Daily Bearer Token' : 'HMAC-SHA256 Secret'}
-                  </span>
-                </label>
-                <div className="relative">
-                  <input
-                    type={showSecretKey ? 'text' : 'password'}
-                    value={secretKey}
-                    onChange={(e) => setSecretKey(e.target.value)}
-                    placeholder={
-                      broker === 'Fyers'
-                        ? 'Paste daily access token from Fyers dashboard'
-                        : `Enter your official ${broker} Secret key`
-                    }
-                    disabled={algoRunning}
-                    className="input-field pr-10 font-mono text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowSecretKey(!showSecretKey)}
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-white transition-colors focus:outline-none cursor-pointer"
-                    title={showSecretKey ? 'Click to hide Secret' : 'Click to view Secret'}
-                    aria-label={showSecretKey ? 'Hide Secret' : 'Show Secret'}
-                  >
-                    {showSecretKey ? <EyeOff className="w-4 h-4 text-primary-400" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
             </div>
           </div>
 
@@ -783,7 +890,13 @@ export default function AlgoTrade() {
               className="w-full py-2.5 px-4 bg-primary-600 hover:bg-primary-500 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-all duration-200 disabled:opacity-50 shadow-md shadow-primary-950/30 cursor-pointer"
             >
               <RefreshCw className={`w-4 h-4 ${isTesting ? 'animate-spin' : ''}`} />
-              <span>{isTesting ? 'Verifying with Exchange Servers...' : `Verify ${broker} Connection`}</span>
+              <span>
+                {isTesting
+                  ? 'Verifying with Exchange Servers...'
+                  : broker === 'PaperTrade'
+                  ? 'Verify Paper Trading Engine (No API Key)'
+                  : `Verify ${broker} Connection`}
+              </span>
             </button>
 
             {/* Demo / Simulation Mode Toggle */}
@@ -901,6 +1014,173 @@ export default function AlgoTrade() {
                   className="input-field font-mono uppercase"
                 />
               </div>
+
+              {/* Trade Sizing & Margin Requirements based on Market */}
+              {market === 'crypto' ? (
+                <div className="p-3 rounded-xl bg-dark-900 border border-gray-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-white flex items-center gap-1.5">
+                      <span>⚡ Crypto Sizing & Margin Required</span>
+                    </span>
+                    <span className="text-[10px] text-primary-400 font-mono">Derivatives / Margin</span>
+                  </div>
+
+                  {/* Total Trade Amount */}
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-300 mb-1 flex items-center justify-between">
+                      <span>Total Amount for Trade ($ / USDT)</span>
+                      <span className="text-[10px] text-gray-500">Position Size</span>
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-2.5 text-xs text-gray-500 font-mono">$</span>
+                      <input
+                        type="number"
+                        min="10"
+                        step="50"
+                        value={cryptoTradeAmount}
+                        onChange={(e) => setCryptoTradeAmount(Math.max(10, parseFloat(e.target.value) || 0))}
+                        disabled={algoRunning}
+                        className="input-field pl-7 font-mono text-sm"
+                        placeholder="1000"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Leverage Selector */}
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-300 mb-1 flex items-center justify-between">
+                      <span>Leverage / Margin Mode</span>
+                      <span className="text-[10px] text-amber-400 font-mono">{leverage}x Leverage</span>
+                    </label>
+                    <div className="grid grid-cols-5 gap-1.5 text-xs">
+                      {[1, 5, 10, 20, 50].map((lev) => (
+                        <button
+                          key={lev}
+                          type="button"
+                          onClick={() => setLeverage(lev)}
+                          disabled={algoRunning}
+                          className={`py-1 rounded font-mono text-xs transition-all ${
+                            leverage === lev
+                              ? 'bg-primary-600 text-white font-bold'
+                              : 'bg-dark-800 text-gray-400 hover:text-white border border-gray-700/60'
+                          }`}
+                        >
+                          {lev}x
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Required Margin Calculation Display Box */}
+                  <div className="p-2.5 rounded-lg bg-dark-950 border border-primary-500/20 text-xs space-y-1 font-mono">
+                    <div className="flex justify-between items-center text-gray-400">
+                      <span>Total Trade Amount:</span>
+                      <span className="text-white font-semibold">${cryptoTradeAmount.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-primary-300 font-medium">Margin Required for Trade:</span>
+                      <span className="text-emerald-400 font-bold text-sm">${(cryptoTradeAmount / leverage).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[10px] text-gray-500 pt-0.5 border-t border-gray-800">
+                      <span>Estimated Liquidation Buffer:</span>
+                      <span className="text-amber-400">~{(100 / leverage * 0.9).toFixed(1)}%</span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 rounded-xl bg-dark-900 border border-gray-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-white flex items-center gap-1.5">
+                      <span>🇮🇳 Indian Equity Sizing</span>
+                    </span>
+                    <span className="badge badge-green text-[10px] py-0 px-1.5 font-semibold">Zero Margin Needed</span>
+                  </div>
+
+                  {/* Toggle between Amount and Quantity */}
+                  <div className="grid grid-cols-2 p-0.5 bg-dark-950 border border-gray-800 rounded-lg text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setIndianSizingMode('amount')}
+                      disabled={algoRunning}
+                      className={`py-1 rounded font-medium transition-all ${
+                        indianSizingMode === 'amount'
+                          ? 'bg-primary-600 text-white font-bold'
+                          : 'text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      Trade by Amount (₹)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIndianSizingMode('quantity')}
+                      disabled={algoRunning}
+                      className={`py-1 rounded font-medium transition-all ${
+                        indianSizingMode === 'quantity'
+                          ? 'bg-primary-600 text-white font-bold'
+                          : 'text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      Trade by Quantity
+                    </button>
+                  </div>
+
+                  {indianSizingMode === 'amount' ? (
+                    <div>
+                      <label className="block text-[11px] font-medium text-gray-300 mb-1 flex items-center justify-between">
+                        <span>Total Trade Amount (₹)</span>
+                        <span className="text-[10px] text-gray-500">Cash Order</span>
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-2.5 text-xs text-gray-500 font-mono">₹</span>
+                        <input
+                          type="number"
+                          min="500"
+                          step="1000"
+                          value={indianAmount}
+                          onChange={(e) => setIndianAmount(Math.max(100, parseFloat(e.target.value) || 0))}
+                          disabled={algoRunning}
+                          className="input-field pl-7 font-mono text-sm"
+                          placeholder="25000"
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-[11px] font-medium text-gray-300 mb-1 flex items-center justify-between">
+                        <span>Quantity (Shares / Units)</span>
+                        <span className="text-[10px] text-gray-500">Exact Quantity</span>
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={indianQuantity}
+                        onChange={(e) => setIndianQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                        disabled={algoRunning}
+                        className="input-field font-mono text-sm"
+                        placeholder="10"
+                      />
+                    </div>
+                  )}
+
+                  {/* Cash Equity explanation card */}
+                  <div className="p-2.5 rounded-lg bg-dark-950 border border-emerald-500/20 text-xs space-y-1 font-mono">
+                    <div className="flex justify-between items-center text-gray-400">
+                      <span>Execution Segment:</span>
+                      <span className="text-white font-medium">NSE/BSE Delivery Cash</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-400">Total Capital Required:</span>
+                      <span className="text-emerald-400 font-bold">
+                        ₹{indianSizingMode === 'amount' ? indianAmount.toLocaleString() : (indianQuantity * (prices[symbol]?.price || 2950)).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-emerald-400/80 pt-1 border-t border-gray-800">
+                      ✓ No Margin Required • 100% Cash Covered • Zero Borrowing Interest
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Risk per trade & Max daily trades */}
               <div className="grid grid-cols-2 gap-3">

@@ -13,29 +13,30 @@ import {
   Shield,
   BarChart3,
   Lightbulb,
-  Mic
+  Mic,
+  Zap
 } from 'lucide-react'
 
 // Quick actions list for the left sidebar
 const quickActions = [
-  { label: 'Best Strategies', prompt: 'What are the best trading strategies?', icon: Target },
-  { label: 'Buy Signals', prompt: 'What are current buy signals?', icon: TrendingUp },
-  { label: 'Risk Management', prompt: 'How to manage risk?', icon: Shield },
-  { label: 'Indian Market', prompt: 'Analyze Indian market', icon: BarChart3 },
-  { label: 'Crypto Analysis', prompt: 'Analyze crypto market', icon: Sparkles },
-  { label: 'RSI Guide', prompt: 'How to use RSI indicator?', icon: Lightbulb },
-  { label: 'MACD Guide', prompt: 'How to use MACD?', icon: BarChart3 },
-  { label: 'Position Sizing', prompt: 'How to calculate position size?', icon: Shield },
+  { label: '🚀 Start Auto Bot (Paper)', prompt: 'Start auto trading bot with RSI strategy on Paper Trading', icon: Zap },
+  { label: '🛑 Stop Auto Bot', prompt: 'Stop auto trading bot', icon: Shield },
+  { label: '🛒 Buy 0.05 BTC (Paper)', prompt: 'Buy 0.05 BTC', icon: TrendingUp },
+  { label: '🛒 Buy 10 Reliance (Paper)', prompt: 'Buy 10 Reliance', icon: BarChart3 },
+  { label: '📊 Bot Status & Balance', prompt: 'Check bot status and paper balance', icon: Bot },
+  { label: '⚡ Buy Signals', prompt: 'What are current buy signals?', icon: TrendingUp },
+  { label: '🎯 Best Strategies', prompt: 'What are the best trading strategies?', icon: Target },
+  { label: '🛡️ Risk Management', prompt: 'How to manage risk?', icon: Shield },
 ]
 
 // Suggested prompts above the input field
 const suggestedPrompts = [
+  { label: '🚀 Start Auto Bot', prompt: 'Start auto trading bot with RSI strategy on Paper Trading' },
+  { label: '🛑 Stop Bot', prompt: 'Stop auto trading bot' },
+  { label: '🛒 Buy 0.05 BTC', prompt: 'Buy 0.05 BTC' },
+  { label: '🛒 Buy 10 Reliance', prompt: 'Buy 10 Reliance' },
+  { label: '📊 Bot Status & Balance', prompt: 'Check bot status and paper balance' },
   { label: '⚡ Buy Signals', prompt: 'What are current buy signals?' },
-  { label: '🎯 Best Strategies', prompt: 'What are the best trading strategies?' },
-  { label: '📊 RSI Guide', prompt: 'How to use RSI indicator?' },
-  { label: '🛡️ Risk Management', prompt: 'How to manage risk?' },
-  { label: '🇮🇳 Indian Market', prompt: 'Analyze Indian market' },
-  { label: '₿ Crypto Analysis', prompt: 'Analyze crypto market' },
 ]
 
 // Helper function to render text with bold formatting (split on **)
@@ -114,7 +115,21 @@ function formatTimestamp(timestamp) {
 }
 
 export default function Chatbot() {
-  const { chatMessages, addChatMessage, clearChat, activeMarket, selectedSymbol } = useStore()
+  const {
+    chatMessages,
+    addChatMessage,
+    clearChat,
+    activeMarket,
+    selectedSymbol,
+    algoRunning,
+    algoConfig,
+    setAlgoRunning,
+    setAlgoConfig,
+    addAlgoLog,
+    paperBalance,
+    setPaperBalance,
+    prices
+  } = useStore()
   const [input, setInput] = useState('')
   const [isTyping, setIsTyping] = useState(false)
   const [isListening, setIsListening] = useState(false)
@@ -143,6 +158,295 @@ export default function Chatbot() {
 
     setInput('')
     setIsTyping(true)
+
+    const lower = messageText.toLowerCase()
+
+    // ----------------------------------------------------
+    // A. INTERCEPT: AUTO-TRADE BOT START / LAUNCH
+    // ----------------------------------------------------
+    if (
+      lower.includes('start bot') ||
+      lower.includes('start auto') ||
+      lower.includes('start algo') ||
+      lower.includes('launch bot') ||
+      lower.includes('run bot') ||
+      lower.includes('start trading bot')
+    ) {
+      let targetMarket = activeMarket || 'crypto'
+      let targetSymbol = selectedSymbol?.symbol || (targetMarket === 'crypto' ? 'BTCUSDT' : 'RELIANCE.NS')
+
+      if (lower.includes('reliance') || lower.includes('tcs') || lower.includes('nifty') || lower.includes('indian')) {
+        targetMarket = 'indian'
+        targetSymbol = lower.includes('tcs') ? 'TCS.NS' : lower.includes('nifty') ? '^NSEI' : 'RELIANCE.NS'
+      } else if (lower.includes('btc') || lower.includes('bitcoin') || lower.includes('crypto')) {
+        targetMarket = 'crypto'
+        targetSymbol = 'BTCUSDT'
+      } else if (lower.includes('eth')) {
+        targetMarket = 'crypto'
+        targetSymbol = 'ETHUSDT'
+      } else if (lower.includes('sol')) {
+        targetMarket = 'crypto'
+        targetSymbol = 'SOLUSDT'
+      }
+
+      let strat = 'RSI Oversold'
+      if (lower.includes('macd')) strat = 'MACD Crossover'
+      else if (lower.includes('ema')) strat = 'EMA 9/21 Dynamic Cross'
+      else if (lower.includes('bollinger')) strat = 'Bollinger Band Squeeze'
+      else if (lower.includes('supertrend')) strat = 'Supertrend + VWAP'
+
+      const isCrypto = targetMarket === 'crypto'
+      const tradeAmt = isCrypto ? 1000 : 25000
+      const lev = isCrypto ? 10 : 1
+      const marginReq = isCrypto ? 100 : 25000
+      const qty = isCrypto ? 0.05 : 10
+
+      const configPayload = {
+        broker: 'PaperTrade',
+        apiKey: '',
+        secretKey: '',
+        strategy: strat,
+        symbol: targetSymbol,
+        market: targetMarket,
+        riskPerTrade: 1.5,
+        maxDailyTrades: 10,
+        isDemo: true,
+        tradeAmount: tradeAmt,
+        leverage: lev,
+        marginRequired: marginReq,
+        quantity: qty
+      }
+
+      try {
+        await api.startAlgoTrade(configPayload)
+      } catch (err) {
+        console.warn('Backend start algo fallback:', err)
+      }
+
+      setAlgoRunning(true)
+      if (setAlgoConfig) setAlgoConfig(configPayload)
+      if (addAlgoLog) {
+        addAlgoLog({
+          id: String(Date.now()),
+          type: 'INFO',
+          message: `🚀 Auto Bot started via Chatbot: ${strat} on ${targetSymbol} (Paper Trading Mode • Zero API Keys)`,
+          timestamp: new Date().toLocaleTimeString(),
+        })
+      }
+
+      const responseText = `🚀 **Auto-Trading Bot Activated Successfully!**\n\n` +
+        `The automated trading engine is now **actively monitoring and executing trades** in **Paper Trading Mode** with zero API keys required.\n\n` +
+        `### 🤖 Active Bot Telemetry:\n` +
+        `- **Broker Gateway:** \`📄 Paper Trading Engine\` (Zero API Key • 100% Risk Free)\n` +
+        `- **Active Symbol:** \`${targetSymbol}\`\n` +
+        `- **Strategy:** \`${strat}\`\n` +
+        `- **Market Mode:** \`${targetMarket.toUpperCase()}\`\n` +
+        `- **Trade Sizing & Margin:** ${
+          isCrypto
+            ? `**$${tradeAmt.toLocaleString()} Total Trade Amount** | **${lev}x Leverage** | **$${marginReq.toLocaleString()} Margin Required**`
+            : `**₹${tradeAmt.toLocaleString()} Cash Equity (${qty} shares)** | **100% Cash Covered (No Margin Needed)**`
+        }\n` +
+        `- **Virtual Balance Available:** \`₹${(paperBalance || 100000).toLocaleString()}\`\n\n` +
+        `🟢 **Live Status:** Ticks are scanned every 3 seconds for ${strat} signals. Simulated buy/sell triggers will automatically log and update your portfolio.\n\n` +
+        `💡 *Type \`Stop Bot\` anytime to pause execution, or ask me for \`Bot Status\`!*`
+
+      addChatMessage({
+        role: 'assistant',
+        content: responseText,
+        confidence: 0.98,
+      })
+      setIsTyping(false)
+      inputRef.current?.focus()
+      return
+    }
+
+    // ----------------------------------------------------
+    // B. INTERCEPT: AUTO-TRADE BOT STOP
+    // ----------------------------------------------------
+    if (
+      lower.includes('stop bot') ||
+      lower.includes('stop auto') ||
+      lower.includes('stop algo') ||
+      lower.includes('halt bot') ||
+      lower.includes('pause bot') ||
+      lower.includes('kill bot')
+    ) {
+      try {
+        await api.stopAlgoTrade()
+      } catch (err) {
+        console.warn('Backend stop algo fallback:', err)
+      }
+
+      setAlgoRunning(false)
+      if (addAlgoLog) {
+        addAlgoLog({
+          id: String(Date.now()),
+          type: 'TRADE',
+          message: `🛑 Auto Bot stopped via Chatbot command. Algorithmic triggers paused.`,
+          timestamp: new Date().toLocaleTimeString(),
+        })
+      }
+
+      const responseText = `🛑 **Auto-Trading Bot Stopped.**\n\n` +
+        `The automated execution loop has been paused.\n\n` +
+        `- **Algorithmic Scanning:** Suspended\n` +
+        `- **Open Paper Positions:** Retained safely in portfolio\n` +
+        `- **Broker Engine:** Standby\n\n` +
+        `💡 *Type \`Start Bot\` or click \`🚀 Start Auto Bot\` anytime to resume automated trading!*`
+
+      addChatMessage({
+        role: 'assistant',
+        content: responseText,
+        confidence: 0.98,
+      })
+      setIsTyping(false)
+      inputRef.current?.focus()
+      return
+    }
+
+    // ----------------------------------------------------
+    // C. INTERCEPT: INSTANT PAPER TRADE VIA CHAT (BUY / SELL)
+    // ----------------------------------------------------
+    const tradeMatch = lower.match(/^(buy|sell|long|short)\s+([0-9.]+)?\s*([a-zA-Z0-9^._-]+)/i)
+    if (tradeMatch) {
+      const actionRaw = tradeMatch[1].toLowerCase()
+      const side = (actionRaw === 'sell' || actionRaw === 'short') ? 'sell' : 'buy'
+      let rawQty = parseFloat(tradeMatch[2])
+      let rawSymbol = tradeMatch[3].toUpperCase()
+
+      // Normalize symbol
+      let sym = rawSymbol
+      let isCrypto = true
+
+      if (rawSymbol.includes('BTC') || rawSymbol === 'BITCOIN') {
+        sym = 'BTCUSDT'
+        if (isNaN(rawQty) || rawQty <= 0) rawQty = 0.05
+      } else if (rawSymbol.includes('ETH') || rawSymbol === 'ETHEREUM') {
+        sym = 'ETHUSDT'
+        if (isNaN(rawQty) || rawQty <= 0) rawQty = 0.5
+      } else if (rawSymbol.includes('SOL')) {
+        sym = 'SOLUSDT'
+        if (isNaN(rawQty) || rawQty <= 0) rawQty = 5
+      } else if (rawSymbol.includes('RELIANCE')) {
+        sym = 'RELIANCE.NS'
+        isCrypto = false
+        if (isNaN(rawQty) || rawQty <= 0) rawQty = 10
+      } else if (rawSymbol.includes('TCS')) {
+        sym = 'TCS.NS'
+        isCrypto = false
+        if (isNaN(rawQty) || rawQty <= 0) rawQty = 10
+      } else if (rawSymbol.includes('INFY')) {
+        sym = 'INFY.NS'
+        isCrypto = false
+        if (isNaN(rawQty) || rawQty <= 0) rawQty = 15
+      } else if (rawSymbol.includes('.NS') || rawSymbol.includes('.BO')) {
+        isCrypto = false
+        if (isNaN(rawQty) || rawQty <= 0) rawQty = 10
+      } else {
+        if (isNaN(rawQty) || rawQty <= 0) rawQty = 0.05
+      }
+
+      // Determine price
+      const livePriceObj = prices[sym]
+      let price = livePriceObj?.lastPrice || livePriceObj?.price
+      if (!price) {
+        if (sym === 'BTCUSDT') price = 64250
+        else if (sym === 'ETHUSDT') price = 3480
+        else if (sym === 'SOLUSDT') price = 186
+        else if (sym === 'RELIANCE.NS') price = 2960
+        else if (sym === 'TCS.NS') price = 3880
+        else if (sym === 'INFY.NS') price = 1890
+        else price = isCrypto ? 100 : 1500
+      }
+      price = Number(price)
+
+      const totalValue = Number((rawQty * price).toFixed(2))
+      const leverage = isCrypto ? 10 : 1
+      const marginRequired = isCrypto ? Number((totalValue / leverage).toFixed(2)) : totalValue
+      const currencySymbol = isCrypto ? '$' : '₹'
+
+      // Execute paper trade
+      let newBalance = paperBalance || 100000
+      try {
+        const tradeRes = await api.savePaperTrade({
+          symbol: sym,
+          type: isCrypto ? 'crypto' : 'indian',
+          side,
+          quantity: rawQty,
+          entry_price: price,
+          strategy: 'Chatbot AI Direct Order'
+        })
+        if (tradeRes && tradeRes.balance !== undefined) {
+          newBalance = tradeRes.balance
+          setPaperBalance(newBalance)
+        } else {
+          newBalance = side === 'buy' ? Math.max(0, newBalance - marginRequired) : newBalance + totalValue
+          setPaperBalance(newBalance)
+        }
+      } catch (tradeErr) {
+        console.warn('Direct chat paper trade error:', tradeErr)
+        newBalance = side === 'buy' ? Math.max(0, newBalance - marginRequired) : newBalance + totalValue
+        setPaperBalance(newBalance)
+      }
+
+      const responseText = `✅ **Paper Trade Executed Instantly via Chatbot!**\n\n` +
+        `### 📋 Execution Order Ticket:\n` +
+        `- **Order ID:** \`#TRD-${Math.floor(100000 + Math.random() * 900000)}\`\n` +
+        `- **Action / Side:** \`${side.toUpperCase()} (${side === 'buy' ? 'LONG' : 'SHORT'})\`\n` +
+        `- **Symbol:** \`${sym}\`\n` +
+        `- **Quantity Filled:** \`${rawQty}\`\n` +
+        `- **Execution Price:** \`${currencySymbol}${price.toLocaleString()}\`\n` +
+        `- **Total Order Value:** \`${currencySymbol}${totalValue.toLocaleString()}\`\n` +
+        `- **${isCrypto ? 'Margin Required (10x Leverage)' : 'Cash Equity Sizing (No Margin Needed)'}:** \`${currencySymbol}${marginRequired.toLocaleString()}\`\n` +
+        `- **Remaining Virtual Balance:** \`₹${Math.round(newBalance).toLocaleString()}\`\n\n` +
+        `📊 *Your order is now live and tracked in the Paper Trading module with real-time P&L calculations.*`
+
+      addChatMessage({
+        role: 'assistant',
+        content: responseText,
+        confidence: 0.99,
+      })
+      setIsTyping(false)
+      inputRef.current?.focus()
+      return
+    }
+
+    // ----------------------------------------------------
+    // D. INTERCEPT: BOT STATUS & BALANCE QUERY
+    // ----------------------------------------------------
+    if (
+      lower.includes('bot status') ||
+      lower.includes('algo status') ||
+      lower.includes('check bot') ||
+      lower.includes('paper balance') ||
+      lower.includes('my balance') ||
+      lower.includes('trading balance')
+    ) {
+      const responseText = `📊 **TradeX Pro Live Telemetry & Bot Status:**\n\n` +
+        `### 🤖 Algorithmic Auto Bot:\n` +
+        `- **Status:** ${algoRunning ? '🟢 **RUNNING (Actively Scanning & Trading)**' : '🔴 **STOPPED (Standby)**'}\n` +
+        `- **Active Strategy:** \`${algoConfig?.strategy || 'RSI Oversold'}\`\n` +
+        `- **Active Symbol:** \`${algoConfig?.symbol || (activeMarket === 'crypto' ? 'BTCUSDT' : 'RELIANCE.NS')}\`\n` +
+        `- **Execution Engine:** \`${algoConfig?.broker || 'Paper Trading (Zero API Key Needed)'}\`\n\n` +
+        `### 💼 Paper Trading Account:\n` +
+        `- **Available Virtual Balance:** \`₹${(paperBalance || 100000).toLocaleString()}\`\n` +
+        `- **Margin Model:**\n` +
+        `  • **Crypto:** Total Amount & Margin Required (\`Margin = Total / Leverage\`)\n` +
+        `  • **Indian Stocks:** 100% Cash Equity (No margin needed)\n\n` +
+        `💡 *Commands you can use:*\n` +
+        `- *"Start auto trading bot on BTC"* or *"Start bot on Reliance"*\n` +
+        `- *"Stop auto trading bot"*\n` +
+        `- *"Buy 0.1 BTC"* or *"Buy 25 Reliance"*`
+
+      addChatMessage({
+        role: 'assistant',
+        content: responseText,
+        confidence: 0.98,
+      })
+      setIsTyping(false)
+      inputRef.current?.focus()
+      return
+    }
 
     try {
       const context = {

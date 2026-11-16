@@ -210,6 +210,17 @@ export const api = {
 
   // Algo Trading
   testAlgoConnection: async (brokerData) => {
+    if (brokerData.broker === 'PaperTrade' || brokerData.broker?.toLowerCase().includes('paper')) {
+      return {
+        success: true,
+        status: 'connected',
+        broker: 'Paper Trading',
+        accountType: 'Virtual Account (₹1,00,000)',
+        latency: '1ms',
+        permissions: ['Virtual Spot', 'Virtual Futures', 'Zero Margin Borrowing Fee'],
+        message: 'Connected to Paper Trading engine! No API key needed.'
+      }
+    }
     try {
       const res = await axios.post(`${API_BASE}/algo/test-connection`, brokerData)
       return res.data

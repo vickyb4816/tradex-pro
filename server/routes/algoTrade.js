@@ -203,8 +203,20 @@ function runAlgoCycle(config) {
   // If a BUY or SELL signal was generated, simulate an automated order execution log
   if (signal.type === 'SIGNAL' && signal.action) {
     const orderId = 'TRX-' + Math.floor(100000 + Math.random() * 900000)
-    const qty = signal.data?.symbol?.includes('BTC') ? 0.05 : 25
-    const execMsg = `⚡ [ORDER EXECUTED] Automated ${signal.action} ${qty} ${signal.data?.symbol} @ ₹${signal.data?.price} via ${config.broker} [Order ID: #${orderId}]`
+    const isCrypto = config.market === 'crypto' || (!signal.data?.symbol?.includes('.NS') && !signal.data?.symbol?.includes('.BO'))
+    
+    // Determine quantity based on config
+    let qty = 1
+    if (isCrypto) {
+      const price = signal.data?.price || 64000
+      const totalAmt = config.tradeAmount || 1000
+      qty = Number((totalAmt / price).toFixed(4)) || 0.05
+    } else {
+      qty = config.quantity || (config.tradeAmount ? Math.floor(config.tradeAmount / (signal.data?.price || 1500)) : 10) || 10
+    }
+
+    const marginInfo = isCrypto && config.leverage > 1 ? ` [Margin: $${((qty * (signal.data?.price || 64000)) / (config.leverage || 1)).toFixed(2)} (${config.leverage}x Lev)]` : ''
+    const execMsg = `⚡ [ORDER EXECUTED] Automated ${signal.action} ${qty} ${signal.data?.symbol} @ ₹${signal.data?.price} via ${config.broker}${marginInfo} [Order ID: #${orderId}]`
 
     db.prepare('INSERT INTO algo_logs (type, message, data) VALUES (?, ?, ?)')
       .run('TRADE', execMsg, JSON.stringify({
@@ -214,14 +226,56 @@ function runAlgoCycle(config) {
         price: signal.data?.price,
         quantity: qty,
         broker: config.broker,
+        leverage: isCrypto ? (config.leverage || 1) : 1,
         status: 'FILLED'
       }))
+
+    // If Paper Trading, insert directly into paper trading database
+    const isPaper = config.broker === 'PaperTrade' || config.isDemo || config.broker?.toLowerCase().includes('paper')
+    if (isPaper) {
+      try {
+        const tradeId = randomUUID()
+        const price = signal.data?.price || 50000
+        const cost = qty * price
+        const side = signal.action.toLowerCase()
+
+        const account = db.prepare('SELECT * FROM paper_account WHERE id = 1').get()
+        if (account && (side === 'buy' ? cost <= account.balance : true)) {
+          db.prepare('INSERT INTO paper_trades (id, symbol, type, side, quantity, entry_price, strategy) VALUES (?, ?, ?, ?, ?, ?, ?)')
+            .run(tradeId, signal.data?.symbol, isCrypto ? 'crypto' : 'indian', side, qty, price, config.strategy || 'Auto Bot')
+          if (side === 'buy') {
+            db.prepare('UPDATE paper_account SET balance = balance - ? WHERE id = 1').run(cost)
+          }
+        }
+      } catch (err) {
+        console.warn('Auto paper trade insert:', err.message)
+      }
+    }
   }
 }
 
 // 1. Unified Real Broker Connection Verification
 router.post('/test-connection', async (req, res) => {
   const { broker = 'Binance', apiKey = '', secretKey = '', appId = '', accessToken = '', environment = 'global' } = req.body
+
+  // Paper Trading requires zero keys
+  if (broker === 'PaperTrade' || broker.toLowerCase().includes('paper')) {
+    verifiedBrokerSession = {
+      broker: 'Paper Trading',
+      accountType: 'Virtual Account (₹1,00,000)',
+      latency: '1ms',
+      verifiedAt: Date.now()
+    }
+    return res.json({
+      success: true,
+      status: 'connected',
+      broker: 'Paper Trading',
+      accountType: 'Virtual Account (₹1,00,000)',
+      latency: '1ms',
+      permissions: ['Simulated Spot', 'Simulated Futures', 'Zero Borrowing Fee'],
+      message: 'Paper Trading Virtual Engine connected! No API key needed.'
+    })
+  }
 
   try {
     // Perform LIVE exchange handshake
@@ -274,7 +328,7 @@ router.post('/test-connection', async (req, res) => {
 router.post('/start', async (req, res) => {
   const db = getDb()
   const {
-    broker = 'Binance',
+    broker = 'PaperTrade',
     apiKey = '',
     secretKey = '',
     appId = '',
@@ -284,18 +338,31 @@ router.post('/start', async (req, res) => {
     market = 'crypto',
     riskPerTrade = 1.5,
     maxDailyTrades = 10,
-    isDemo = false
+    isDemo = false,
+    tradeAmount = 1000,
+    leverage = 1,
+    quantity = 1,
+    marginRequired = 1000
   } = req.body
 
-  // If live trading (not demo mode), verify credentials with the real exchange
-  if (!isDemo) {
+  const isPaper = broker === 'PaperTrade' || isDemo || broker.toLowerCase().includes('paper')
+
+  // If live trading (not paper trading), verify credentials with the real exchange
+  if (!isPaper) {
     try {
       const verification = await verifyBrokerConnection({ broker, apiKey, secretKey, appId, accessToken })
       verifiedBrokerSession = verification
     } catch (err) {
       return res.status(401).json({
-        error: `Cannot start live automated trading: ${err.message}. Please verify your credentials or switch to Simulation/Demo mode.`
+        error: `Cannot start live automated trading: ${err.message}. Please verify your credentials or select Paper Trading.`
       })
+    }
+  } else {
+    verifiedBrokerSession = {
+      broker: 'Paper Trading',
+      accountType: 'Virtual Account (₹1,00,000)',
+      latency: '1ms',
+      verifiedAt: Date.now()
     }
   }
 
@@ -312,7 +379,11 @@ router.post('/start', async (req, res) => {
     riskPerTrade,
     maxDailyTrades,
     isRunning: true,
-    isDemo: Boolean(isDemo)
+    isDemo: isPaper,
+    tradeAmount: Number(tradeAmount) || 1000,
+    leverage: Number(leverage) || 1,
+    quantity: Number(quantity) || 1,
+    marginRequired: Number(marginRequired) || 1000
   }
 
   // Save config in DB

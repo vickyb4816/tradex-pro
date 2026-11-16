@@ -11,14 +11,68 @@
     {
       "id": 1,
       "broker": "Binance",
-      "api_key": "test_api_key_12345",
+      "api_key": "4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b",
       "secret_key": "***hidden***",
-      "strategy": "RSI Oversold",
-      "symbol": "BTCUSDT",
-      "is_running": 0
+      "is_running": 1
     }
   ],
   "algo_logs": [
+    {
+      "id": 19,
+      "type": "ERROR",
+      "message": "❌ Binance API Handshake Rejected: Binance API Rejected (-2014): API-key format invalid.",
+      "data": "{\"broker\":\"Binance\",\"error\":\"Binance API Rejected (-2014): API-key format invalid.\"}",
+      "created_at": "2026-11-16T17:37:35.392Z"
+    },
+    {
+      "id": 18,
+      "type": "ERROR",
+      "message": "❌ Delta Exchange API Handshake Rejected: Delta Exchange API Rejected: invalid_api_key",
+      "data": "{\"broker\":\"Delta Exchange\",\"error\":\"Delta Exchange API Rejected: invalid_api_key\"}",
+      "created_at": "2026-11-16T16:12:54.360Z"
+    },
+    {
+      "id": 17,
+      "type": "ERROR",
+      "message": "❌ CoinDCX API Handshake Rejected: CoinDCX API Rejected (401): Invalid credentials",
+      "data": "{\"broker\":\"CoinDCX\",\"error\":\"CoinDCX API Rejected (401): Invalid credentials\"}",
+      "created_at": "2026-11-16T16:12:48.545Z"
+    },
+    {
+      "id": 16,
+      "type": "ERROR",
+      "message": "❌ Fyers API Handshake Rejected: Fyers API Rejected (-16): Token is Invalid or Expired",
+      "data": "{\"broker\":\"Fyers\",\"error\":\"Fyers API Rejected (-16): Token is Invalid or Expired\"}",
+      "created_at": "2026-11-16T16:12:42.889Z"
+    },
+    {
+      "id": 15,
+      "type": "ERROR",
+      "message": "❌ Binance API Handshake Rejected: Binance API Rejected (-2015): Invalid API-key, IP, or permissions for action.",
+      "data": "{\"broker\":\"Binance\",\"error\":\"Binance API Rejected (-2015): Invalid API-key, IP, or permissions for action.\"}",
+      "created_at": "2026-11-16T16:12:38.358Z"
+    },
+    {
+      "id": 14,
+      "type": "ERROR",
+      "message": "❌ Binance API Handshake Rejected: Binance API Rejected (-2014): API-key format invalid.",
+      "data": "{\"broker\":\"Binance\",\"error\":\"Binance API Rejected (-2014): API-key format invalid.\"}",
+      "created_at": "2026-11-16T16:12:30.936Z"
+    },
+    {
+      "id": 13,
+      "type": "ERROR",
+      "message": "❌ Binance API Handshake Rejected: Binance API Rejected (-2014): API-key format invalid.",
+      "data": "{\"broker\":\"Binance\",\"error\":\"Binance API Rejected (-2014): API-key format invalid.\"}",
+      "created_at": "2026-11-16T16:12:23.676Z"
+    },
+    {
+      "id": 12,
+      "type": "INFO",
+      "message": "Broker API connection verified for Binance [Handshake OK]",
+      "data": "{\"broker\":\"Binance\",\"status\":\"connected\"}",
+      "created_at": "2026-11-16T15:59:43.397Z"
+    },
     {
       "id": 11,
       "type": "INFO",

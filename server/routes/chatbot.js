@@ -38,7 +38,25 @@ function generateResponse(message, context) {
 
   // Greeting
   if (msg.match(/^(hi|hello|hey|namaste)/)) {
-    return { response: "Namaste! 🙏 I'm your AI trading advisor. I can help you with:\n\n📊 **Market Analysis** - Indian stocks & crypto\n🎯 **Strategy Suggestions** - High win-rate strategies\n📈 **Technical Analysis** - Indicator explanations\n⚠️ **Risk Management** - Position sizing & stop losses\n💡 **Trade Ideas** - Actionable setups\n\nWhat would you like to know?", confidence: 0.95 }
+    return { response: "Namaste! 🙏 I'm your AI trading advisor and auto-trading co-pilot. I can help you with:\n\n🤖 **Auto Trading Bot** - Start/stop bot & instant paper trades\n📊 **Market Analysis** - Indian stocks & crypto\n🎯 **Strategy Suggestions** - High win-rate strategies\n📈 **Technical Analysis** - Indicator explanations\n⚠️ **Risk Management & Margin** - Position sizing, crypto leverage & Indian cash equity\n\nWhat would you like to know?", confidence: 0.95 }
+  }
+
+  // Auto Bot & Paper Trading
+  if (msg.includes('auto trade') || msg.includes('algo trade') || msg.includes('trading bot') || msg.includes('paper trade') || msg.includes('paper trading') || msg.includes('bot')) {
+    return {
+      response: "🤖 **TradeX Pro Auto-Trading Bot & Paper Trading:**\n\n" +
+        "⚡ **Paper Trading (No API Key Required):**\n" +
+        "You can run all algorithmic strategies with zero API keys and ₹1,00,000 in virtual funds.\n\n" +
+        "📐 **Margin Requirements:**\n" +
+        "- **Crypto Derivatives:** Requires Total Trade Amount & Margin Required (`Margin = Total / Leverage`).\n" +
+        "- **Indian Stock Market:** No margin needed! 100% Cash Equity based on Amount or Quantity.\n\n" +
+        "💬 **Direct Chat Commands:**\n" +
+        "- *Start auto trading bot on BTC*\n" +
+        "- *Stop auto trading bot*\n" +
+        "- *Buy 0.05 BTC* or *Buy 10 Reliance*\n" +
+        "- *Check bot status & paper balance*",
+      confidence: 0.96
+    }
   }
 
   // Strategy questions

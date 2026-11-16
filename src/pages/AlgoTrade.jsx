@@ -56,11 +56,11 @@ export default function AlgoTrade() {
 
   // Connection testing state
   const [isConnected, setIsConnected] = useState(() => {
-    return Boolean(algoRunning || (savedKeys.apiKey && savedKeys.secretKey))
+    return Boolean(algoRunning || (savedKeys.apiKey && savedKeys.apiKey.length >= 16 && savedKeys.secretKey && savedKeys.secretKey.length >= 16))
   })
   const [isTesting, setIsTesting] = useState(false)
   const [connectionMessage, setConnectionMessage] = useState(() => {
-    if (savedKeys.apiKey && savedKeys.secretKey) {
+    if (savedKeys.apiKey && savedKeys.apiKey.length >= 16 && savedKeys.secretKey && savedKeys.secretKey.length >= 16) {
       return {
         type: 'success',
         text: `Connected to ${savedKeys.broker || 'Binance'} (Credentials saved)`,
@@ -600,10 +600,11 @@ export default function AlgoTrade() {
                   <button
                     type="button"
                     onClick={() => setShowApiKey(!showApiKey)}
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-white transition-colors"
-                    title={showApiKey ? 'Hide API Key' : 'Show API Key'}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-white transition-colors focus:outline-none cursor-pointer"
+                    title={showApiKey ? 'Click to hide API Key' : 'Click to view API Key'}
+                    aria-label={showApiKey ? 'Hide API Key' : 'Show API Key'}
                   >
-                    {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    {showApiKey ? <EyeOff className="w-4 h-4 text-primary-400" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
               </div>
@@ -626,10 +627,11 @@ export default function AlgoTrade() {
                   <button
                     type="button"
                     onClick={() => setShowSecretKey(!showSecretKey)}
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-white transition-colors"
-                    title={showSecretKey ? 'Hide Secret Key' : 'Show Secret Key'}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-white transition-colors focus:outline-none cursor-pointer"
+                    title={showSecretKey ? 'Click to hide Secret Key' : 'Click to view Secret Key'}
+                    aria-label={showSecretKey ? 'Hide Secret Key' : 'Show Secret Key'}
                   >
-                    {showSecretKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    {showSecretKey ? <EyeOff className="w-4 h-4 text-primary-400" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
               </div>

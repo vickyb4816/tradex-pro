@@ -225,13 +225,32 @@ router.post('/test-connection', (req, res) => {
     })
   }
 
+  // Format validation for broker credentials
+  const cleanKey = apiKey.trim()
+  const cleanSecret = secretKey.trim()
+  const isBinance = broker.toLowerCase().includes('binance')
+
+  if (isBinance && (cleanKey.length < 24 || cleanSecret.length < 24)) {
+    return res.status(400).json({
+      success: false,
+      error: `Invalid Binance API Key format (${cleanKey.length} chars). Real Binance API & Secret keys are 64 characters alphanumeric tokens. Please enter valid keys from your Binance API management.`
+    })
+  }
+
+  if (!isBinance && (cleanKey.length < 10 || cleanSecret.length < 10)) {
+    return res.status(400).json({
+      success: false,
+      error: `Invalid ${broker} API Key format (${cleanKey.length} chars). Expected valid broker API credentials (minimum 16-32 characters).`
+    })
+  }
+
   // Save validated keys in DB config
   try {
     const db = getDb()
     db.prepare(`
       INSERT OR REPLACE INTO algo_config (id, broker, api_key, secret_key, strategy, symbol, is_running)
       VALUES (1, ?, ?, ?, COALESCE((SELECT strategy FROM algo_config WHERE id=1), 'RSI Oversold'), COALESCE((SELECT symbol FROM algo_config WHERE id=1), 'BTCUSDT'), COALESCE((SELECT is_running FROM algo_config WHERE id=1), 0))
-    `).run(broker, apiKey, '***hidden***')
+    `).run(broker, cleanKey, '***hidden***')
 
     db.prepare('INSERT INTO algo_logs (type, message, data) VALUES (?, ?, ?)')
       .run('INFO', `Broker API connection verified for ${broker} [Handshake OK]`, JSON.stringify({ broker, status: 'connected' }))

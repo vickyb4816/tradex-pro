@@ -206,20 +206,8 @@ export const api = {
       const res = await axios.post(`${API_BASE}/algo/test-connection`, brokerData)
       return res.data
     } catch (err) {
-      if (err.response?.data?.error) {
-        throw new Error(err.response.data.error)
-      }
-      if (brokerData.apiKey && brokerData.apiKey.length >= 24 && brokerData.secretKey && brokerData.secretKey.length >= 24) {
-        return {
-          success: true,
-          status: 'connected',
-          broker: brokerData.broker || 'Binance',
-          latency: '18ms',
-          permissions: ['Market Data', 'Spot Trade', 'Futures Read'],
-          message: `Connected to ${brokerData.broker || 'Binance'} successfully! Orders & Market Data enabled.`
-        }
-      }
-      throw new Error(`Invalid credentials length for ${brokerData.broker || 'broker'}. Real API keys are 32 to 64 characters long.`)
+      const serverMsg = err.response?.data?.error || err.message
+      throw new Error(serverMsg)
     }
   },
 

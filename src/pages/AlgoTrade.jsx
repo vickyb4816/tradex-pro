@@ -44,6 +44,8 @@ export default function AlgoTrade() {
   const [broker, setBroker] = useState(savedKeys.broker || algoConfig?.broker || 'Binance')
   const [apiKey, setApiKey] = useState(savedKeys.apiKey || algoConfig?.apiKey || '')
   const [secretKey, setSecretKey] = useState(savedKeys.secretKey || algoConfig?.secretKey || '')
+  const [environment, setEnvironment] = useState(savedKeys.environment || 'global')
+  const [isDemoMode, setIsDemoMode] = useState(false)
   const [strategy, setStrategy] = useState(algoConfig?.strategy || 'RSI Oversold')
   const [symbol, setSymbol] = useState(algoConfig?.symbol || 'BTCUSDT')
   const [market, setMarket] = useState(algoConfig?.market || 'crypto')
@@ -54,20 +56,11 @@ export default function AlgoTrade() {
   const [showApiKey, setShowApiKey] = useState(false)
   const [showSecretKey, setShowSecretKey] = useState(false)
 
-  // Connection testing state
-  const [isConnected, setIsConnected] = useState(() => {
-    return Boolean(algoRunning || (savedKeys.apiKey && savedKeys.apiKey.length >= 16 && savedKeys.secretKey && savedKeys.secretKey.length >= 16))
-  })
+  // Connection testing state (Strict: ONLY true when server verifies with real broker)
+  const [isConnected, setIsConnected] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
-  const [connectionMessage, setConnectionMessage] = useState(() => {
-    if (savedKeys.apiKey && savedKeys.apiKey.length >= 16 && savedKeys.secretKey && savedKeys.secretKey.length >= 16) {
-      return {
-        type: 'success',
-        text: `Connected to ${savedKeys.broker || 'Binance'} (Credentials saved)`,
-      }
-    }
-    return null
-  })
+  const [verifiedDetails, setVerifiedDetails] = useState(null)
+  const [connectionMessage, setConnectionMessage] = useState(null)
 
   // Control & execution states
   const [actionLoading, setActionLoading] = useState(false)
@@ -264,15 +257,19 @@ export default function AlgoTrade() {
   }, [algoRunning, broker, symbol, strategy, addAlgoLog, setAlgoLogs])
 
   // Test Broker Connection Handler
+  // Test Broker Connection Handler (Live Exchange Handshake)
   const handleTestConnection = async () => {
     setConnectionMessage(null)
     setValidationError('')
+    setVerifiedDetails(null)
 
     if (!apiKey.trim() || !secretKey.trim()) {
       setIsConnected(false)
+      const field1 = broker === 'Fyers' ? 'App ID' : 'API Key'
+      const field2 = broker === 'Fyers' ? 'Access Token' : 'Secret Key'
       setConnectionMessage({
         type: 'error',
-        text: 'API Key and Secret Key are required to test connection.',
+        text: `Both ${field1} and ${field2} are required to test connection.`,
       })
       if (addAlgoLog) {
         addAlgoLog({
@@ -287,35 +284,50 @@ export default function AlgoTrade() {
 
     setIsTesting(true)
     try {
-      const res = await api.testAlgoConnection({ broker, apiKey, secretKey })
-      setIsConnected(true)
-      const creds = { broker, apiKey, secretKey }
-      localStorage.setItem('tradex_broker_keys', JSON.stringify(creds))
-      if (setAlgoConfig) setAlgoConfig(creds)
+      const payload = {
+        broker,
+        apiKey: apiKey.trim(),
+        secretKey: secretKey.trim(),
+        appId: apiKey.trim(),
+        accessToken: secretKey.trim(),
+        environment
+      }
+      const res = await api.testAlgoConnection(payload)
 
-      setConnectionMessage({
-        type: 'success',
-        text: res.message || `Connected to ${broker} successfully! Orders & Market Data enabled.`,
-      })
-      if (addAlgoLog) {
-        addAlgoLog({
-          id: String(Date.now()),
-          type: 'INFO',
-          message: `API Handshake verified for ${broker} [Latency: ${res.latency || '18ms'} • Permissions: Spot/Futures Trade, Read-Only].`,
-          timestamp: new Date().toLocaleTimeString(),
+      if (res.success) {
+        setIsConnected(true)
+        setVerifiedDetails(res)
+        const creds = { broker, apiKey, secretKey, environment }
+        localStorage.setItem('tradex_broker_keys', JSON.stringify(creds))
+        if (setAlgoConfig) setAlgoConfig(creds)
+
+        setConnectionMessage({
+          type: 'success',
+          text: res.message || `Connected to ${broker} successfully! Real exchange verified.`,
+          details: res
         })
+        if (addAlgoLog) {
+          addAlgoLog({
+            id: String(Date.now()),
+            type: 'INFO',
+            message: `✅ LIVE EXCHANGE HANDSHAKE VERIFIED: ${broker} [${res.accountType || 'Active'} • Latency: ${res.latency || '22ms'}].`,
+            timestamp: new Date().toLocaleTimeString(),
+          })
+        }
       }
     } catch (err) {
       setIsConnected(false)
+      setVerifiedDetails(null)
+      const errorMsg = err.message || `Failed to connect to ${broker}.`
       setConnectionMessage({
         type: 'error',
-        text: err.response?.data?.error || err.message || `Failed to connect to ${broker}. Check API credentials and IP permissions.`,
+        text: errorMsg,
       })
       if (addAlgoLog) {
         addAlgoLog({
           id: String(Date.now()),
           type: 'ERROR',
-          message: `Broker authentication rejected by ${broker}: ${err.message}`,
+          message: `❌ ${broker} Handshake Rejected: ${errorMsg}`,
           timestamp: new Date().toLocaleTimeString(),
         })
       }
@@ -329,8 +341,8 @@ export default function AlgoTrade() {
     setValidationError('')
     setConnectionMessage(null)
 
-    if (!apiKey.trim() || !secretKey.trim()) {
-      setValidationError('Please configure both API Key and Secret Key before starting.')
+    if (!isDemoMode && !isConnected) {
+      setValidationError(`Broker API is not connected. Please click "Test Connection" to authenticate your ${broker} API keys, or enable "Simulation / Demo Mode" below to trade virtually.`)
       return
     }
 
@@ -340,19 +352,23 @@ export default function AlgoTrade() {
     }
 
     setActionLoading(true)
-    const creds = { broker, apiKey, secretKey }
+    const creds = { broker, apiKey, secretKey, environment }
     localStorage.setItem('tradex_broker_keys', JSON.stringify(creds))
     if (setAlgoConfig) setAlgoConfig(creds)
 
     const configPayload = {
       broker,
-      apiKey,
-      secretKey,
+      apiKey: apiKey.trim(),
+      secretKey: secretKey.trim(),
+      appId: apiKey.trim(),
+      accessToken: secretKey.trim(),
       strategy,
       symbol: symbol.toUpperCase(),
       market,
       riskPerTrade: Number(riskPerTrade),
       maxDailyTrades: Number(maxDailyTrades),
+      isDemo: isDemoMode,
+      environment
     }
 
     try {
@@ -561,20 +577,32 @@ export default function AlgoTrade() {
               <div>
                 <label className="block text-xs font-medium text-gray-300 mb-1.5 flex items-center justify-between">
                   <span>Broker Provider</span>
-                  <span className="text-[10px] text-gray-500">API Gateway</span>
+                  <span className="text-[10px] text-primary-400 font-semibold">One Tool For All</span>
                 </label>
                 <div className="relative">
                   <select
                     value={broker}
-                    onChange={(e) => setBroker(e.target.value)}
+                    onChange={(e) => {
+                      const newBroker = e.target.value
+                      setBroker(newBroker)
+                      setIsConnected(false)
+                      setVerifiedDetails(null)
+                      setConnectionMessage(null)
+                      if (newBroker === 'Fyers') {
+                        setMarket('indian')
+                        setSymbol('RELIANCE.NS')
+                      } else {
+                        setMarket('crypto')
+                        setSymbol('BTCUSDT')
+                      }
+                    }}
                     disabled={algoRunning}
-                    className="input-field cursor-pointer appearance-none bg-dark-900 pr-8"
+                    className="input-field cursor-pointer appearance-none bg-dark-900 pr-8 font-medium text-sm"
                   >
-                    <option value="Zerodha">Zerodha (Kite Connect)</option>
-                    <option value="Angel One">Angel One (SmartAPI)</option>
-                    <option value="Upstox">Upstox (API v2)</option>
-                    <option value="Binance">Binance (Spot & Futures)</option>
-                    <option value="Custom">Custom Webhook / REST API</option>
+                    <option value="Binance">Binance (Spot & USD-M Futures)</option>
+                    <option value="Fyers">Fyers (API v3 - NSE / BSE Equity & F&O)</option>
+                    <option value="CoinDCX">CoinDCX (Indian Crypto Exchange)</option>
+                    <option value="Delta Exchange">Delta Exchange (Crypto Derivatives & Options)</option>
                   </select>
                   <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-gray-400">
                     <Settings2 className="w-4 h-4" />
@@ -582,18 +610,91 @@ export default function AlgoTrade() {
                 </div>
               </div>
 
-              {/* API Key input (password type with show/hide toggle) */}
+              {/* Sub-Environment Selector for Binance or Delta */}
+              {broker === 'Binance' && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-300 mb-1 flex items-center justify-between">
+                    <span>Binance Market Type</span>
+                    <span className="text-[10px] text-gray-500">API Gateway</span>
+                  </label>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setEnvironment('spot')}
+                      className={`py-1.5 rounded-lg border font-medium transition-all ${
+                        environment !== 'futures'
+                          ? 'bg-primary-600/20 border-primary-500 text-primary-300'
+                          : 'bg-dark-900 border-gray-800 text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      Spot & Margin
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEnvironment('futures')}
+                      className={`py-1.5 rounded-lg border font-medium transition-all ${
+                        environment === 'futures'
+                          ? 'bg-primary-600/20 border-primary-500 text-primary-300'
+                          : 'bg-dark-900 border-gray-800 text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      USDT-M Futures
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {broker === 'Delta Exchange' && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-300 mb-1 flex items-center justify-between">
+                    <span>Delta Server Region</span>
+                    <span className="text-[10px] text-gray-500">Gateway URL</span>
+                  </label>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setEnvironment('global')}
+                      className={`py-1.5 rounded-lg border font-medium transition-all ${
+                        environment !== 'india'
+                          ? 'bg-primary-600/20 border-primary-500 text-primary-300'
+                          : 'bg-dark-900 border-gray-800 text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      Delta Global
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEnvironment('india')}
+                      className={`py-1.5 rounded-lg border font-medium transition-all ${
+                        environment === 'india'
+                          ? 'bg-primary-600/20 border-primary-500 text-primary-300'
+                          : 'bg-dark-900 border-gray-800 text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      Delta India
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Dynamic Field 1: API Key / App ID */}
               <div>
                 <label className="block text-xs font-medium text-gray-300 mb-1.5 flex items-center justify-between">
-                  <span>API Key</span>
-                  <span className="text-[10px] text-gray-500">Public Identifier</span>
+                  <span>{broker === 'Fyers' ? 'Fyers App ID' : `${broker} API Key`}</span>
+                  <span className="text-[10px] text-gray-500 font-mono">
+                    {broker === 'Fyers' ? 'Client_ID-App_ID' : 'Public Token'}
+                  </span>
                 </label>
                 <div className="relative">
                   <input
                     type={showApiKey ? 'text' : 'password'}
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
-                    placeholder="Enter broker API key"
+                    placeholder={
+                      broker === 'Fyers'
+                        ? 'e.g. XC12345-100'
+                        : `Enter your official ${broker} API key`
+                    }
                     disabled={algoRunning}
                     className="input-field pr-10 font-mono text-sm"
                   />
@@ -601,26 +702,32 @@ export default function AlgoTrade() {
                     type="button"
                     onClick={() => setShowApiKey(!showApiKey)}
                     className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-white transition-colors focus:outline-none cursor-pointer"
-                    title={showApiKey ? 'Click to hide API Key' : 'Click to view API Key'}
-                    aria-label={showApiKey ? 'Hide API Key' : 'Show API Key'}
+                    title={showApiKey ? 'Click to hide Key' : 'Click to view Key'}
+                    aria-label={showApiKey ? 'Hide Key' : 'Show Key'}
                   >
                     {showApiKey ? <EyeOff className="w-4 h-4 text-primary-400" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
               </div>
 
-              {/* Secret Key input (password type with show/hide toggle) */}
+              {/* Dynamic Field 2: Secret Key / Access Token */}
               <div>
                 <label className="block text-xs font-medium text-gray-300 mb-1.5 flex items-center justify-between">
-                  <span>Secret Key / Token</span>
-                  <span className="text-[10px] text-gray-500">HMAC-SHA256</span>
+                  <span>{broker === 'Fyers' ? 'Fyers Access Token' : `${broker} Secret Key`}</span>
+                  <span className="text-[10px] text-gray-500 font-mono">
+                    {broker === 'Fyers' ? 'Daily Bearer Token' : 'HMAC-SHA256 Secret'}
+                  </span>
                 </label>
                 <div className="relative">
                   <input
                     type={showSecretKey ? 'text' : 'password'}
                     value={secretKey}
                     onChange={(e) => setSecretKey(e.target.value)}
-                    placeholder="Enter secret key or session token"
+                    placeholder={
+                      broker === 'Fyers'
+                        ? 'Paste daily access token from Fyers dashboard'
+                        : `Enter your official ${broker} Secret key`
+                    }
                     disabled={algoRunning}
                     className="input-field pr-10 font-mono text-sm"
                   />
@@ -628,8 +735,8 @@ export default function AlgoTrade() {
                     type="button"
                     onClick={() => setShowSecretKey(!showSecretKey)}
                     className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-white transition-colors focus:outline-none cursor-pointer"
-                    title={showSecretKey ? 'Click to hide Secret Key' : 'Click to view Secret Key'}
-                    aria-label={showSecretKey ? 'Hide Secret Key' : 'Show Secret Key'}
+                    title={showSecretKey ? 'Click to hide Secret' : 'Click to view Secret'}
+                    aria-label={showSecretKey ? 'Hide Secret' : 'Show Secret'}
                   >
                     {showSecretKey ? <EyeOff className="w-4 h-4 text-primary-400" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -642,31 +749,70 @@ export default function AlgoTrade() {
             {/* Connection feedback message */}
             {connectionMessage && (
               <div
-                className={`mb-3 p-2.5 rounded-lg text-xs flex items-center gap-2 ${
+                className={`mb-3 p-3 rounded-lg text-xs border ${
                   connectionMessage.type === 'success'
-                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                    : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                    ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                    : 'bg-red-500/10 text-red-300 border-red-500/30'
                 }`}
               >
-                {connectionMessage.type === 'success' ? (
-                  <Wifi className="w-3.5 h-3.5 flex-shrink-0" />
-                ) : (
-                  <WifiOff className="w-3.5 h-3.5 flex-shrink-0" />
-                )}
-                <span className="truncate">{connectionMessage.text}</span>
+                <div className="flex items-start gap-2">
+                  {connectionMessage.type === 'success' ? (
+                    <Wifi className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+                  ) : (
+                    <WifiOff className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                  )}
+                  <div className="flex-1 leading-relaxed">
+                    <div className="font-semibold">{connectionMessage.text}</div>
+                    {verifiedDetails && (
+                      <div className="mt-1.5 text-[11px] text-emerald-400/90 space-y-0.5 font-mono">
+                        <div>Type: {verifiedDetails.accountType}</div>
+                        <div>Latency: {verifiedDetails.latency}</div>
+                        {verifiedDetails.clientId && <div>Client/User: {verifiedDetails.clientId}</div>}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
 
-            {/* "Test Connection" button */}
+            {/* "Verify Connection" button */}
             <button
               type="button"
               onClick={handleTestConnection}
               disabled={isTesting || algoRunning}
-              className="w-full py-2.5 px-4 bg-dark-700 hover:bg-dark-600 text-gray-200 border border-gray-700 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-all duration-200 disabled:opacity-50"
+              className="w-full py-2.5 px-4 bg-primary-600 hover:bg-primary-500 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-all duration-200 disabled:opacity-50 shadow-md shadow-primary-950/30 cursor-pointer"
             >
-              <RefreshCw className={`w-4 h-4 ${isTesting ? 'animate-spin text-primary-400' : 'text-gray-400'}`} />
-              <span>{isTesting ? 'Testing Handshake...' : 'Test Connection'}</span>
+              <RefreshCw className={`w-4 h-4 ${isTesting ? 'animate-spin' : ''}`} />
+              <span>{isTesting ? 'Verifying with Exchange Servers...' : `Verify ${broker} Connection`}</span>
             </button>
+
+            {/* Demo / Simulation Mode Toggle */}
+            <div className="mt-3.5 p-2.5 rounded-lg bg-dark-900 border border-gray-800 flex items-center justify-between">
+              <div>
+                <div className="text-xs font-semibold text-white flex items-center gap-1.5">
+                  <span>🧪 Paper / Simulation Mode</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded font-semibold ${isDemoMode ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-gray-800 text-gray-400'}`}>
+                    {isDemoMode ? 'ACTIVE' : 'OFF'}
+                  </span>
+                </div>
+                <div className="text-[10px] text-gray-500 mt-0.5">
+                  {isDemoMode ? 'Auto-trades run virtually (No real broker API needed)' : 'Live execution requires verified broker API'}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsDemoMode(!isDemoMode)}
+                className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  isDemoMode ? 'bg-amber-500' : 'bg-gray-700'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200 ease-in-out ${
+                    isDemoMode ? 'translate-x-4' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
           </div>
         </div>
 

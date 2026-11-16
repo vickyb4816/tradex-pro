@@ -840,11 +840,10 @@ export default function Settings() {
                   onChange={(e) => setApiKeys(prev => ({ ...prev, broker: e.target.value }))}
                   className="select-field w-full text-sm"
                 >
-                  <option value="binance">Binance (Crypto Spot & Futures)</option>
-                  <option value="zerodha">Zerodha Kite (Indian NSE/BSE)</option>
-                  <option value="upstox">Upstox API (Indian Equities)</option>
-                  <option value="angelone">Angel One SmartAPI</option>
-                  <option value="wazirx">WazirX (Crypto INR)</option>
+                  <option value="Binance">Binance (Crypto Spot & Futures)</option>
+                  <option value="Fyers">Fyers (API v3 - Indian Stocks NSE/BSE)</option>
+                  <option value="CoinDCX">CoinDCX (Indian Crypto Exchange)</option>
+                  <option value="Delta Exchange">Delta Exchange (Crypto Derivatives)</option>
                 </select>
               </div>
 

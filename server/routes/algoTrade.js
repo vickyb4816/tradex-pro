@@ -1,20 +1,25 @@
 import { Router } from 'express'
 import { getDb } from '../db/setup.js'
 import { randomUUID } from 'crypto'
+import { verifyBrokerConnection } from '../services/brokerGateway.js'
 
 const router = Router()
 
 let algoInterval = null
+let verifiedBrokerSession = null
 let currentConfig = {
   broker: 'Binance',
   apiKey: '',
   secretKey: '',
+  appId: '',
+  accessToken: '',
   strategy: 'RSI Oversold',
   symbol: 'BTCUSDT',
   market: 'crypto',
   riskPerTrade: 1.5,
   maxDailyTrades: 10,
   isRunning: false,
+  isDemo: false,
 }
 
 // Strategy helper to normalize strategy names
@@ -31,7 +36,7 @@ function normalizeStrategy(strat = '') {
 // Generate realistic signal & telemetry
 function generateSignal(strategyName, symbol, broker = 'Binance') {
   const strat = normalizeStrategy(strategyName)
-  const isIndian = symbol.includes('.NS') || symbol.includes('.BO') || symbol.startsWith('^')
+  const isIndian = symbol.includes('.NS') || symbol.includes('.BO') || symbol.startsWith('^') || broker.toLowerCase().includes('fyers')
   
   // Base price simulation or lookup
   let basePrice = 64200
@@ -214,67 +219,84 @@ function runAlgoCycle(config) {
   }
 }
 
-// 1. Test Broker API Connection
-router.post('/test-connection', (req, res) => {
-  const { broker = 'Binance', apiKey = '', secretKey = '' } = req.body
+// 1. Unified Real Broker Connection Verification
+router.post('/test-connection', async (req, res) => {
+  const { broker = 'Binance', apiKey = '', secretKey = '', appId = '', accessToken = '', environment = 'global' } = req.body
 
-  if (!apiKey.trim() || !secretKey.trim()) {
-    return res.status(400).json({
-      success: false,
-      error: 'API Key and Secret Key are required to test connection.'
-    })
-  }
-
-  // Format validation for broker credentials
-  const cleanKey = apiKey.trim()
-  const cleanSecret = secretKey.trim()
-  const isBinance = broker.toLowerCase().includes('binance')
-
-  if (isBinance && (cleanKey.length < 24 || cleanSecret.length < 24)) {
-    return res.status(400).json({
-      success: false,
-      error: `Invalid Binance API Key format (${cleanKey.length} chars). Real Binance API & Secret keys are 64 characters alphanumeric tokens. Please enter valid keys from your Binance API management.`
-    })
-  }
-
-  if (!isBinance && (cleanKey.length < 10 || cleanSecret.length < 10)) {
-    return res.status(400).json({
-      success: false,
-      error: `Invalid ${broker} API Key format (${cleanKey.length} chars). Expected valid broker API credentials (minimum 16-32 characters).`
-    })
-  }
-
-  // Save validated keys in DB config
   try {
+    // Perform LIVE exchange handshake
+    const verification = await verifyBrokerConnection({
+      broker,
+      apiKey,
+      secretKey,
+      appId,
+      accessToken,
+      environment
+    })
+
+    verifiedBrokerSession = {
+      broker: verification.broker,
+      accountType: verification.accountType,
+      clientId: verification.clientId,
+      latency: verification.latency,
+      verifiedAt: Date.now()
+    }
+
     const db = getDb()
     db.prepare(`
       INSERT OR REPLACE INTO algo_config (id, broker, api_key, secret_key, strategy, symbol, is_running)
       VALUES (1, ?, ?, ?, COALESCE((SELECT strategy FROM algo_config WHERE id=1), 'RSI Oversold'), COALESCE((SELECT symbol FROM algo_config WHERE id=1), 'BTCUSDT'), COALESCE((SELECT is_running FROM algo_config WHERE id=1), 0))
-    `).run(broker, cleanKey, '***hidden***')
+    `).run(broker, (apiKey || appId || '***').trim(), '***hidden***')
 
     db.prepare('INSERT INTO algo_logs (type, message, data) VALUES (?, ?, ?)')
-      .run('INFO', `Broker API connection verified for ${broker} [Handshake OK]`, JSON.stringify({ broker, status: 'connected' }))
-  } catch (e) {
-    console.error('Failed to save algo config on connection test:', e)
-  }
+      .run('INFO', `✅ Authenticated with ${broker} API [${verification.accountType || 'Verified'} - Latency: ${verification.latency}]`, JSON.stringify(verification))
 
-  res.json({
-    success: true,
-    status: 'connected',
-    broker,
-    latency: Math.floor(16 + Math.random() * 18) + 'ms',
-    permissions: ['Market Data Streams', 'Spot Trading Enabled', 'Futures Read/Write'],
-    message: `Connected to ${broker} successfully! Orders & Market Data enabled.`
-  })
+    return res.json({
+      success: true,
+      status: 'connected',
+      ...verification
+    })
+  } catch (err) {
+    verifiedBrokerSession = null
+    const db = getDb()
+    db.prepare('INSERT INTO algo_logs (type, message, data) VALUES (?, ?, ?)')
+      .run('ERROR', `❌ ${broker} API Handshake Rejected: ${err.message}`, JSON.stringify({ broker, error: err.message }))
+
+    return res.status(401).json({
+      success: false,
+      status: 'disconnected',
+      error: err.message
+    })
+  }
 })
 
 // 2. Start Algo Trading
-router.post('/start', (req, res) => {
+router.post('/start', async (req, res) => {
   const db = getDb()
-  const { broker = 'Binance', apiKey = '', secretKey = '', strategy = 'RSI Oversold', symbol = 'BTCUSDT', market = 'crypto', riskPerTrade = 1.5, maxDailyTrades = 10 } = req.body
+  const {
+    broker = 'Binance',
+    apiKey = '',
+    secretKey = '',
+    appId = '',
+    accessToken = '',
+    strategy = 'RSI Oversold',
+    symbol = 'BTCUSDT',
+    market = 'crypto',
+    riskPerTrade = 1.5,
+    maxDailyTrades = 10,
+    isDemo = false
+  } = req.body
 
-  if (!apiKey || !secretKey) {
-    return res.status(400).json({ error: 'API Key and Secret Key are required' })
+  // If live trading (not demo mode), verify credentials with the real exchange
+  if (!isDemo) {
+    try {
+      const verification = await verifyBrokerConnection({ broker, apiKey, secretKey, appId, accessToken })
+      verifiedBrokerSession = verification
+    } catch (err) {
+      return res.status(401).json({
+        error: `Cannot start live automated trading: ${err.message}. Please verify your credentials or switch to Simulation/Demo mode.`
+      })
+    }
   }
 
   // Update current config
@@ -282,19 +304,22 @@ router.post('/start', (req, res) => {
     broker,
     apiKey,
     secretKey,
+    appId,
+    accessToken,
     strategy,
     symbol: symbol.toUpperCase(),
     market,
     riskPerTrade,
     maxDailyTrades,
-    isRunning: true
+    isRunning: true,
+    isDemo: Boolean(isDemo)
   }
 
   // Save config in DB
   db.prepare(`
     INSERT OR REPLACE INTO algo_config (id, broker, api_key, secret_key, strategy, symbol, is_running)
     VALUES (1, ?, ?, ?, ?, ?, 1)
-  `).run(broker, apiKey, '***hidden***', strategy, symbol.toUpperCase())
+  `).run(broker, (apiKey || appId || '***').trim(), '***hidden***', strategy, symbol.toUpperCase())
 
   // Stop any existing interval
   if (algoInterval) {
@@ -302,9 +327,9 @@ router.post('/start', (req, res) => {
     algoInterval = null
   }
 
-  // Log engine launch
+  const modeBadge = isDemo ? '[🧪 SIMULATION MODE]' : `[🔴 LIVE TRADING via ${broker}]`
   db.prepare('INSERT INTO algo_logs (type, message, data) VALUES (?, ?, ?)')
-    .run('INFO', `🚀 Algo Trading Engine STARTED: ${strategy} executing on ${symbol.toUpperCase()} (${broker})`, JSON.stringify(currentConfig))
+    .run('INFO', `🚀 Algo Trading Engine STARTED ${modeBadge}: ${strategy} on ${symbol.toUpperCase()}`, JSON.stringify(currentConfig))
 
   db.prepare('INSERT INTO algo_logs (type, message, data) VALUES (?, ?, ?)')
     .run('SIGNAL', `Risk protocols active: ${riskPerTrade}% risk per trade, max ${maxDailyTrades} daily orders`, JSON.stringify({ riskPerTrade, maxDailyTrades }))
@@ -320,7 +345,8 @@ router.post('/start', (req, res) => {
   res.json({
     status: 'running',
     message: `Algo trading started for ${symbol.toUpperCase()} using ${strategy} on ${broker}`,
-    config: currentConfig
+    config: currentConfig,
+    verifiedSession: verifiedBrokerSession
   })
 })
 
@@ -351,13 +377,15 @@ router.get('/status', (req, res) => {
 
   res.json({
     isRunning: Boolean(algoInterval),
-    isConnected: Boolean(config && config.api_key && config.api_key.length > 0),
+    isConnected: Boolean(verifiedBrokerSession),
+    verifiedSession: verifiedBrokerSession,
     config: {
       broker: config.broker || currentConfig.broker,
       strategy: config.strategy || currentConfig.strategy,
       symbol: config.symbol || currentConfig.symbol,
       apiKey: config.api_key || currentConfig.apiKey,
-      isRunning: Boolean(algoInterval)
+      isRunning: Boolean(algoInterval),
+      isDemo: currentConfig.isDemo
     },
     logs
   })

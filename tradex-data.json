@@ -10,15 +10,93 @@
   "algo_config": [
     {
       "id": 1,
-      "broker": "",
-      "api_key": "",
-      "secret_key": "",
-      "strategy": "",
-      "symbol": "",
+      "broker": "Binance",
+      "api_key": "test_api_key_12345",
+      "secret_key": "***hidden***",
+      "strategy": "RSI Oversold",
+      "symbol": "BTCUSDT",
       "is_running": 0
     }
   ],
-  "algo_logs": [],
+  "algo_logs": [
+    {
+      "id": 11,
+      "type": "INFO",
+      "message": "Algo trading stopped by user. Positions secured.",
+      "data": null,
+      "created_at": "2026-11-16T15:50:57.431Z"
+    },
+    {
+      "id": 10,
+      "type": "TRADE",
+      "message": "⚡ [ORDER EXECUTED] Automated BUY 0.05 BTCUSDT @ ₹64445.78 via Binance [Order ID: #TRX-886558]",
+      "data": "{\"orderId\":\"TRX-886558\",\"action\":\"BUY\",\"symbol\":\"BTCUSDT\",\"price\":64445.78,\"quantity\":0.05,\"broker\":\"Binance\",\"status\":\"FILLED\"}",
+      "created_at": "2026-11-16T15:50:56.280Z"
+    },
+    {
+      "id": 9,
+      "type": "SIGNAL",
+      "message": "🟢 [BUY TRIGGER] RSI Oversold (24.8) on BTCUSDT @ ₹64445.78 | Target: ₹66056.92 (+2.5%), SL: ₹63672.43 (-1.2%)",
+      "data": "{\"action\":\"BUY\",\"indicator\":\"RSI\",\"value\":24.8,\"price\":64445.78,\"target\":66056.92,\"stopLoss\":63672.43,\"symbol\":\"BTCUSDT\"}",
+      "created_at": "2026-11-16T15:50:56.279Z"
+    },
+    {
+      "id": 8,
+      "type": "TRADE",
+      "message": "⚡ [ORDER EXECUTED] Automated BUY 0.05 BTCUSDT @ ₹63976.56 via Binance [Order ID: #TRX-482950]",
+      "data": "{\"orderId\":\"TRX-482950\",\"action\":\"BUY\",\"symbol\":\"BTCUSDT\",\"price\":63976.56,\"quantity\":0.05,\"broker\":\"Binance\",\"status\":\"FILLED\"}",
+      "created_at": "2026-11-16T15:50:52.272Z"
+    },
+    {
+      "id": 7,
+      "type": "SIGNAL",
+      "message": "🟢 [BUY TRIGGER] RSI Oversold (25) on BTCUSDT @ ₹63976.56 | Target: ₹65575.97 (+2.5%), SL: ₹63208.84 (-1.2%)",
+      "data": "{\"action\":\"BUY\",\"indicator\":\"RSI\",\"value\":25,\"price\":63976.56,\"target\":65575.97,\"stopLoss\":63208.84,\"symbol\":\"BTCUSDT\"}",
+      "created_at": "2026-11-16T15:50:52.272Z"
+    },
+    {
+      "id": 6,
+      "type": "TRADE",
+      "message": "⚡ [ORDER EXECUTED] Automated BUY 0.05 BTCUSDT @ ₹64170.2 via Binance [Order ID: #TRX-381042]",
+      "data": "{\"orderId\":\"TRX-381042\",\"action\":\"BUY\",\"symbol\":\"BTCUSDT\",\"price\":64170.2,\"quantity\":0.05,\"broker\":\"Binance\",\"status\":\"FILLED\"}",
+      "created_at": "2026-11-16T15:50:48.265Z"
+    },
+    {
+      "id": 5,
+      "type": "SIGNAL",
+      "message": "🟢 [BUY TRIGGER] RSI Oversold (63.9) on BTCUSDT @ ₹64170.2 | Target: ₹65774.45 (+2.5%), SL: ₹63400.16 (-1.2%)",
+      "data": "{\"action\":\"BUY\",\"indicator\":\"RSI\",\"value\":63.9,\"price\":64170.2,\"target\":65774.45,\"stopLoss\":63400.16,\"symbol\":\"BTCUSDT\"}",
+      "created_at": "2026-11-16T15:50:48.264Z"
+    },
+    {
+      "id": 4,
+      "type": "SCAN",
+      "message": "🔍 Scanning order book BTCUSDT via Binance | RSI: 54.8 (Neutral Zone 35-65) | Spread: 0.02%",
+      "data": "{\"indicator\":\"RSI\",\"value\":54.8,\"price\":64219.47,\"symbol\":\"BTCUSDT\"}",
+      "created_at": "2026-11-16T15:50:44.252Z"
+    },
+    {
+      "id": 3,
+      "type": "SIGNAL",
+      "message": "Risk protocols active: 1.5% risk per trade, max 10 daily orders",
+      "data": "{\"riskPerTrade\":1.5,\"maxDailyTrades\":10}",
+      "created_at": "2026-11-16T15:50:44.251Z"
+    },
+    {
+      "id": 2,
+      "type": "INFO",
+      "message": "🚀 Algo Trading Engine STARTED: RSI Oversold executing on BTCUSDT (Binance)",
+      "data": "{\"broker\":\"Binance\",\"apiKey\":\"test_api_key_12345\",\"secretKey\":\"test_secret_key_67890\",\"strategy\":\"RSI Oversold\",\"symbol\":\"BTCUSDT\",\"market\":\"crypto\",\"riskPerTrade\":1.5,\"maxDailyTrades\":10,\"isRunning\":true}",
+      "created_at": "2026-11-16T15:50:44.251Z"
+    },
+    {
+      "id": 1,
+      "type": "INFO",
+      "message": "Broker API connection verified for Binance [Handshake OK]",
+      "data": "{\"broker\":\"Binance\",\"status\":\"connected\"}",
+      "created_at": "2026-11-16T15:50:38.837Z"
+    }
+  ],
   "pine_scripts": [],
   "watchlist": []
 }

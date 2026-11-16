@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { generateAdvisorResponse } from './advisorEngine.js'
 
 const API_BASE = '/api'
 
@@ -194,10 +195,17 @@ export const api = {
     }
   },
 
-  // Chatbot
+  // Chatbot with resilient AI Advisor fallback (guarantees 100% uptime on Netlify & offline)
   sendChatMessage: async (message, context) => {
-    const res = await axios.post(`${API_BASE}/chatbot`, { message, context })
-    return res.data
+    try {
+      const res = await axios.post(`${API_BASE}/chatbot`, { message, context }, { timeout: 3500 })
+      if (res.data && res.data.response) {
+        return res.data
+      }
+    } catch (err) {
+      console.warn('Backend chatbot offline, using resilient client AI advisor engine:', err.message)
+    }
+    return generateAdvisorResponse(message, context)
   },
 
   // Algo Trading
